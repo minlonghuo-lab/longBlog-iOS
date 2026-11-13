@@ -1,0 +1,14 @@
+{
+  "name": "longblog-ios-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline DOM test fixtures and dotenv verification for longBlog iOS",
+  "scripts": {
+    "test:reader": "node --test tests/article-reader.test.cjs tests/reader-safety2151.test.cjs tests/memo-detail.test.cjs tests/memos-markdown.test.cjs tests/reader.test.cjs",
+    "test:parity": "node --test tests/reader-parity.test.cjs"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.7",
+    "jsdom": "^26.1.0"
+  }
+}

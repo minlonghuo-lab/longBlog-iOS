@@ -1,0 +1,27 @@
+{
+  "memo": {
+    "id": 9,
+    "creatorId": 7,
+    "content": "synthetic PRIVATE fixture #fixture",
+    "visibility": "PRIVATE",
+    "rowStatus": "NORMAL",
+    "createdTs": 1700000000,
+    "updatedTs": 1700000001,
+    "displayTs": 1700000000,
+    "pinned": false,
+    "resourceList": [{
+      "id": 8,
+      "creatorId": 7,
+      "filename": "a.jpg",
+      "type": "image/jpeg",
+      "size": 5,
+      "createdTs": 1700000000,
+      "updatedTs": 1700000000,
+      "externalLink": "https://evil.invalid/should-never-be-used"
+    }]
+  },
+  "user": {"id": 7, "username": "fixture", "rowStatus": "NORMAL"},
+  "tags": ["fixture", "中文"],
+  "deleteMemo": {"message": "Memo permanently deleted"},
+  "deleteResource": true
+}

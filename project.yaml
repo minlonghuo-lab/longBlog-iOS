@@ -1,0 +1,28 @@
+# LongBlog Inbox — native Objective-C, built on-device with ios-dev/scripts/mk.py
+name: LongBlogInbox
+display_name: longBlog
+bundle_id: com.huowenlong.longblog.inbox
+version: "1.0"
+build: "1"
+min_ios: "26.0"
+sdk: ~/.ios-sdk/iPhoneOS26.5.sdk
+sources: [src/*.m]
+frameworks: [UIKit, Foundation, CoreGraphics, QuartzCore, Security, UserNotifications, BackgroundTasks, WebKit, ImageIO, PhotosUI, UniformTypeIdentifiers, QuickLook, AVFoundation, AVKit, CoreMedia, MediaPlayer, Symbols]
+cflags: [-Wall, -Wextra, -Werror, -Wno-unused-parameter, -Wno-nullability-completeness]
+resources: [resources/*.png, resources/Reader]
+info:
+  UILaunchScreen: {}
+  UIApplicationSceneManifest:
+    UIApplicationSupportsMultipleScenes: false
+    UISceneConfigurations:
+      UIWindowSceneSessionRoleApplication:
+        - UISceneConfigurationName: Default Configuration
+          UISceneDelegateClassName: LBSceneDelegate
+  UIBackgroundModes: [fetch, audio]
+  BGTaskSchedulerPermittedIdentifiers: [com.huowenlong.longblog.inbox.refresh]
+  CFBundleIcons:
+    CFBundlePrimaryIcon:
+      CFBundleIconFiles: [AppIcon60x60]
+  ITSAppUsesNonExemptEncryption: false
+sign:
+  mode: adhoc

@@ -1,0 +1,21 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {JSDOM} = require('jsdom');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '../resources/Reader');
+test('private memo Markdown is sanitized and never auto-fetches media',()=>{
+ const dom = new JSDOM('<main><h1 id="title"></h1><p id="meta"></p><article id="content"></article><p id="status"></p></main>',{runScripts:'outside-only',url:'https://reader.invalid/'});
+ dom.window.eval(fs.readFileSync(path.join(root,'vendor/marked.umd.js'),'utf8'));
+ dom.window.eval(fs.readFileSync(path.join(root,'reader.js'),'utf8'));
+ const events=[];
+ dom.window.LBReader.render({isMemo:true,markdown:'# 标题\n\n**加粗** [链接](https://example.test/)\n\n![图](https://shuoshuo.ssaw.top/api/v1/resource/1/file)\n\n<script>window.hacked=1</script>\n\n```js\nconst x = 1;\n```',title:'说说',meta:'私密',site:'https://shuoshuo.ssaw.top',posts:[]},dom.window.document,e=>events.push(e));
+ const content=dom.window.document.querySelector('#content');
+ assert.equal(content.querySelector('h1').textContent,'标题');
+ assert.equal(content.querySelector('strong').textContent,'加粗');
+ assert.equal(content.querySelectorAll('script,img,iframe,svg,form').length,0);
+ assert.equal(dom.window.hacked,undefined);
+ assert.equal(content.querySelector('.code-block code').textContent,'const x = 1;\n');
+ assert.match(content.textContent,/图片请在附件区预览/);
+ assert.deepEqual(events,[]);
+});
