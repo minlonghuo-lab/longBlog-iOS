@@ -35,8 +35,10 @@ class SiteMonitor17Contracts(unittest.TestCase):
         self.assertIn('if (built.length >= 7 && [head hasPrefix:built]) return NO', FAST)
 
     def test_03_ticks_are_lightweight(self):
+        # The once-only first appearance refresh is not a repeating timer job.
+        recurring = ACTIVE.split('  if (!_tick) {', 1)[1]
         for text in ('refreshAll', 'refreshPosts', 'refreshMemos', 'refreshEnv', 'LBSync.shared', 'LBEnvFile'):
-            self.assertNotIn(text, ACTIVE + BATCH)
+            self.assertNotIn(text, recurring + BATCH)
         self.assertIn('headCommit:', BATCH)
         self.assertIn('/build-info.json', BATCH)
 

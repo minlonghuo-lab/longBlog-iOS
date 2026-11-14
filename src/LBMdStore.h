@@ -42,6 +42,9 @@ extern NSString *const LBMdStoreDidChange;
 /// tags, pinned, physical filePath/htmlPath, hasHTMLSidecar. Unpublished never-published
 /// notes have publishedAt=0; ordering uses publishedAt or createdAt descending, then ID.
 - (NSArray<NSDictionary *> *)listArticles;
+/// Independent read-only scan for background dashboard work. Owns its security
+/// scope for the entire scan; never renews or overwrites the selected bookmark.
++ (NSArray<NSDictionary *> *)listArticlesForFolderBookmark:(nullable NSData *)bookmark;
 
 /// Load full article including bodyFormat (default markdown). bodyFormat: html
 /// returns the SAME embedded .md body as html; it is not sent through marked.

@@ -18,7 +18,10 @@ class ChromeContracts(unittest.TestCase):
         self.assertIn('reader && !UIAccessibilityIsReduceMotionEnabled()', app)
         self.assertEqual(app.count('UITabBarMinimizeBehaviorOnScrollDown'), 1)
         self.assertIn('? UITabBarMinimizeBehaviorOnScrollDown : UITabBarMinimizeBehaviorNever', app)
-        self.assertIn('((UINavigationController *)spec[3]).delegate = chrome', app)
+        self.assertIn('__weak LBTabBarController *weakChrome = chrome', app)
+        provider = app.split('viewControllerProvider:', 1)[1].split('return navigation;', 1)[0]
+        self.assertIn('if (!navigation)', provider)
+        self.assertIn('navigation.delegate = weakChrome', provider)
         for hook in ['willShowViewController:', 'didShowViewController:',
                      'didSelectTab:', 'setSelectedTab:', 'setSelectedViewController:',
                      'sceneDidBecomeActive:', 'UIAccessibilityReduceMotionStatusDidChangeNotification']:
@@ -37,7 +40,7 @@ class ChromeContracts(unittest.TestCase):
 
     def test_chrome_backdrops_are_transparent_in_all_states(self):
         app = read('LBApp.m'); nav = read('LBNavigationController.m')
-        self.assertIn('LBNavigationController *nav = [[LBNavigationController alloc]', app)
+        self.assertIn('[[LBNavigationController alloc] initWithRootViewController:vc]', app)
         self.assertIn('[standard configureWithDefaultBackground]', nav)
         self.assertIn('standard.shadowColor = UIColor.clearColor', nav)
         self.assertIn('self.navigationBar.scrollEdgeAppearance = nil', nav)
