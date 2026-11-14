@@ -220,71 +220,141 @@
 }
 @end
 
+// The launch surface has no services, Keychain or document-provider work. Start
+// connection discovery only after UIKit has presented this lightweight window.
+@interface LBLaunchViewController : UIViewController
+@property (nonatomic, copy) void (^ready)(void);
+@end
+@implementation LBLaunchViewController
+- (void)loadView {
+  self.view = [UIView new];
+  self.view.backgroundColor = LBTheme.paper;
+  UIActivityIndicatorView *indicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+  indicator.color = LBTheme.muted;
+  indicator.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.view addSubview:indicator];
+  [NSLayoutConstraint activateConstraints:@[
+    [indicator.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+    [indicator.centerYAnchor constraintEqualToAnchor:self.view.centerYAnchor]
+  ]];
+  [indicator startAnimating];
+}
+- (void)viewDidAppear:(BOOL)animated {
+  [super viewDidAppear:animated];
+  void (^ready)(void) = self.ready;
+  self.ready = nil;
+  if (ready) ready();
+}
+@end
+
 @implementation LBSceneDelegate {
-  LBInboxViewController *_inbox;
   UITabBarController *_tabs;
   UITab *_inboxTab;
+  NSString *_pendingSessionID;
+  id _openObserver, _syncObserver;
 }
 static UINavigationController *navFor(UIViewController *vc) {
-  LBNavigationController *nav = [[LBNavigationController alloc] initWithRootViewController:vc];
-  // Keep the stable title/search geometry from 1.4. Background blending belongs
-  // to LBNavigationController, not an abruptly ending navigation-bar rectangle.
-  nav.navigationBar.prefersLargeTitles = NO;
-  return nav;
+  // LBNavigationController configures its bar in viewDidLoad, not before the
+  // selected tab actually needs a view.
+  return [[LBNavigationController alloc] initWithRootViewController:vc];
 }
-- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)opts {
-  if (![scene isKindOfClass:UIWindowScene.class]) return;
-  UIWindowScene *ws = (UIWindowScene *)scene;
-  self.window = [[UIWindow alloc] initWithWindowScene:ws];
-  self.window.tintColor = LBTheme.accent;
-  _inbox = [LBInboxViewController new];
-  UINavigationController *inboxNav = navFor(_inbox);
-  // View controllers are created eagerly and kept, so each tab keeps its state.
+- (void)openSession:(NSString *)sid {
+  if (![sid isKindOfClass:NSString.class] || !sid.length) return;
+  if (!_tabs) { _pendingSessionID = [sid copy]; return; }
+  _tabs.selectedTab = _inboxTab;
+  UINavigationController *nav = (UINavigationController *)_inboxTab.viewController;
+  LBInboxViewController *inbox = (LBInboxViewController *)nav.viewControllers.firstObject;
+  [inbox openSession:sid animated:LBShouldAnimate(YES)];
+}
+- (void)installTabsWithInboxOnly:(BOOL)inboxOnly {
+  LBTabBarController *chrome = [LBTabBarController new];
+  _tabs = chrome;
+  __weak LBTabBarController *weakChrome = chrome;
+  // Each provider caches one stack. Unvisited tabs do not allocate controllers,
+  // navigation bars or services; returning to a visited tab preserves its state.
   NSArray *specs = @[
-    @[ @"dashboard", @"仪表盘", @"gauge.with.dots.needle.67percent", navFor([LBDashboardViewController new]) ],
-    @[ @"inbox", @"留言", @"bubble.left.and.text.bubble.right", inboxNav ],
-    @[ @"posts", @"文章", @"doc.richtext", navFor([LBPostsViewController new]) ],
-    @[ @"memos", @"说说", @"text.bubble", navFor([[LBMemosTimelineController alloc] initWithArchived:NO]) ],
-    @[ @"config", @"配置", @"slider.horizontal.3", navFor([LBSiteConfigViewController new]) ],
+    @[ @"dashboard", @"仪表盘", @"gauge.with.dots.needle.67percent", ^UIViewController *{ return [LBDashboardViewController new]; } ],
+    @[ @"inbox", @"留言", @"bubble.left.and.text.bubble.right", ^UIViewController *{ return [LBInboxViewController new]; } ],
+    @[ @"posts", @"文章", @"doc.richtext", ^UIViewController *{ return [LBPostsViewController new]; } ],
+    @[ @"memos", @"说说", @"text.bubble", ^UIViewController *{ return [[LBMemosTimelineController alloc] initWithArchived:NO]; } ],
+    @[ @"config", @"配置", @"slider.horizontal.3", ^UIViewController *{ return [LBSiteConfigViewController new]; } ],
   ];
   NSMutableArray *tabs = [NSMutableArray array];
   for (NSArray *s in specs) {
-    UIViewController *vc = s[3];
+    UIViewController *(^makeRoot)(void) = s[3];
+    __block UINavigationController *navigation;
     UITab *t = [[UITab alloc] initWithTitle:s[1] image:[UIImage systemImageNamed:s[2]] identifier:s[0]
-                     viewControllerProvider:^UIViewController *(UITab *tab) { return vc; }];
+                     viewControllerProvider:^UIViewController *(UITab *tab) {
+      if (!navigation) {
+        navigation = navFor(makeRoot());
+        navigation.delegate = weakChrome;
+      }
+      return navigation;
+    }];
     if ([s[0] isEqualToString:@"inbox"]) _inboxTab = t;
     [tabs addObject:t];
   }
-  LBTabBarController *chrome = [LBTabBarController new];
-  _tabs = chrome;
-  for (NSArray *spec in specs) ((UINavigationController *)spec[3]).delegate = chrome;
   _tabs.tabs = tabs;
   _tabs.tabBarMinimizeBehavior = UITabBarMinimizeBehaviorNever;
-  // Land on the inbox when it is the only thing configured, else on the dashboard.
-  _tabs.selectedTab = [LBAPI.shared configured] && !LBGitHub.shared.configured ? _inboxTab : tabs.firstObject;
+  _tabs.selectedTab = inboxOnly || _pendingSessionID.length ? _inboxTab : tabs.firstObject;
   self.window.rootViewController = _tabs;
-  [self.window makeKeyAndVisible];
-  // Weak owner: a reconnected scene must not keep the old tab tree alive or act twice.
+  NSString *sid = _pendingSessionID; _pendingSessionID = nil;
+  if (sid) [self openSession:sid];
+  if (self.window.windowScene.activationState == UISceneActivationStateForegroundActive)
+    [LBSync.shared startForegroundPolling];
+  [UNUserNotificationCenter.currentNotificationCenter requestAuthorizationWithOptions:
+      UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge completionHandler:^(BOOL ok, NSError *e) {}];
+}
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)opts {
+  if (![scene isKindOfClass:UIWindowScene.class]) return;
+  self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+  self.window.backgroundColor = LBTheme.paper;
+  self.window.tintColor = LBTheme.accent;
+  LBLaunchViewController *launch = [LBLaunchViewController new];
   __weak typeof(self) weakSelf = self;
-  [NSNotificationCenter.defaultCenter addObserverForName:LBOpenSessionRequest object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
-    typeof(self) owner = weakSelf; if (!owner) return;
-    owner->_tabs.selectedTab = owner->_inboxTab;
-    [owner->_inbox openSession:n.userInfo[@"sessionId"] animated:LBShouldAnimate(YES)];
+  __weak LBLaunchViewController *weakLaunch = launch;
+  launch.ready = ^{
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+      BOOL inboxOnly = [LBAPI.shared configured] && !LBGitHub.shared.configured;
+      dispatch_async(dispatch_get_main_queue(), ^{
+        typeof(self) owner = weakSelf;
+        if (!owner || !weakLaunch || owner.window.rootViewController != weakLaunch) return;
+        [owner installTabsWithInboxOnly:inboxOnly];
+      });
+    });
+  };
+  _openObserver = [NSNotificationCenter.defaultCenter addObserverForName:LBOpenSessionRequest object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+    [weakSelf openSession:n.userInfo[@"sessionId"]];
   }];
-  [NSNotificationCenter.defaultCenter addObserverForName:LBSyncDidChange object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+  _syncObserver = [NSNotificationCenter.defaultCenter addObserverForName:LBSyncDidChange object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
     typeof(self) owner = weakSelf; if (!owner) return;
     NSInteger u = [LBSync.shared unreadCount];
     owner->_inboxTab.badgeValue = u ? [NSString stringWithFormat:@"%ld", (long)u] : nil;
   }];
-  [UNUserNotificationCenter.currentNotificationCenter requestAuthorizationWithOptions:
-      UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge completionHandler:^(BOOL ok, NSError *e) {}];
+  // A notification tap may precede the launch surface or scene observers.
+  if (![opts.notificationResponse isKindOfClass:UNTextInputNotificationResponse.class])
+    [self openSession:opts.notificationResponse.notification.request.content.userInfo[@"sessionId"]];
+  self.window.rootViewController = launch;
+  [self.window makeKeyAndVisible];
 }
 - (void)sceneDidBecomeActive:(UIScene *)scene {
   [(LBTabBarController *)_tabs updateMinimizePolicy];
-  [LBSync.shared startForegroundPolling];
+  if (_tabs) [LBSync.shared startForegroundPolling];
 }
 - (void)sceneWillResignActive:(UIScene *)scene { [LBSync.shared stopForegroundPolling]; }
 - (void)sceneDidEnterBackground:(UIScene *)scene { [LBSync.shared scheduleBackgroundRefresh]; }
+- (void)sceneDidDisconnect:(UIScene *)scene {
+  [LBSync.shared stopForegroundPolling];
+  self.window = nil; // Discard a late launch-discovery result for this scene.
+  _tabs = nil; _inboxTab = nil;
+  if (_openObserver) [NSNotificationCenter.defaultCenter removeObserver:_openObserver];
+  if (_syncObserver) [NSNotificationCenter.defaultCenter removeObserver:_syncObserver];
+  _openObserver = nil; _syncObserver = nil;
+}
+- (void)dealloc {
+  if (_openObserver) [NSNotificationCenter.defaultCenter removeObserver:_openObserver];
+  if (_syncObserver) [NSNotificationCenter.defaultCenter removeObserver:_syncObserver];
+}
 @end
 
 int main(int argc, char *argv[]) {

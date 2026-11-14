@@ -31,7 +31,7 @@
   NSArray<NSNumber *> *_friendIndexes;
   NSInteger _enabledFriends;
   NSDate *_launchDate;
-  BOOL _visible, _transitioning, _needsUpdate, _updateScheduled;
+  BOOL _visible, _transitioning, _needsUpdate, _updateScheduled, _initialRefreshStarted;
   BOOL _refreshInFlight, _refreshNeedsEnding, _refreshSettling;
   CFTimeInterval _settleNotBefore;
   CGPoint _settleOffset;
@@ -118,7 +118,6 @@
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(resignedActive:) name:UIApplicationWillResignActiveNotification object:nil];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(resignedActive:) name:UISceneWillDeactivateNotification object:nil];
   [self requestUpdate];
-  [LBSiteData.shared refreshAll:nil];
 }
 - (void)viewWillAppear:(BOOL)animated {
   [super viewWillAppear:animated];
@@ -151,6 +150,11 @@
 }
 - (void)becameActive {
   if (![self isActiveDashboard]) return;
+  if (!_initialRefreshStarted) {
+    _initialRefreshStarted = YES;
+    // Do not start services while UIKit is still constructing the first view.
+    [LBSiteData.shared refreshAll:nil];
+  }
   if (!_tick) {
     __weak typeof(self) w = self;
     _tick = [NSTimer scheduledTimerWithTimeInterval:30 repeats:YES block:^(NSTimer *timer) {

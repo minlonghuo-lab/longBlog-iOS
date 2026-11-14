@@ -667,6 +667,8 @@ static BOOL MDRevertJournalClear(NSURL *root, NSError **error) {
 @property (atomic) BOOL revertInstalling;
 @property (nonatomic, strong) NSMutableArray *syncCallbacks;
 - (void)beginArticleOperation:(NSString *)operation note:(NSString *)note done:(void (^)(NSError *))done;
+- (instancetype)initWithFolderBookmark:(NSData *)bookmark;
+- (void)resolveFolderWithBookmark:(NSData *)bookmark renew:(BOOL)renew;
 - (void)beginArticleOperation:(NSString *)operation note:(NSString *)note batch:(NSArray *)batch message:(NSString *)message done:(void (^)(NSError *))done;
 @end
 @interface LBArticleTask : NSObject
@@ -747,6 +749,18 @@ static BOOL MDRevertJournalClear(NSURL *root, NSError **error) {
   return self;
 }
 
+- (instancetype)initWithFolderBookmark:(NSData *)bookmark {
+  if ((self = [super init])) [self resolveFolderWithBookmark:bookmark renew:NO];
+  return self;
+}
+
++ (NSArray<NSDictionary *> *)listArticlesForFolderBookmark:(NSData *)bookmark {
+  // This instance never participates in editing/sync and retains its own scope
+  // until the entire scan finishes, even if the UI selects another directory.
+  LBMdStore *store = [[LBMdStore alloc] initWithFolderBookmark:bookmark];
+  return [store listArticles];
+}
+
 - (void)dealloc {
   if (_accessingSecurityScope && _scopedFolderURL) {
     // Stop on the exact instance that started access; a standardized copy has no sandbox extension.
@@ -755,6 +769,10 @@ static BOOL MDRevertJournalClear(NSURL *root, NSError **error) {
 }
 
 - (void)resolveFolder {
+  [self resolveFolderWithBookmark:[NSUserDefaults.standardUserDefaults dataForKey:@"LBArticlesFolderBookmark"] renew:YES];
+}
+
+- (void)resolveFolderWithBookmark:(NSData *)bookmarkData renew:(BOOL)renew {
   if (_accessingSecurityScope && _scopedFolderURL) {
     // Stop on the exact instance that started access; a standardized copy has no sandbox extension.
     [_scopedFolderURL stopAccessingSecurityScopedResource];
@@ -762,7 +780,6 @@ static BOOL MDRevertJournalClear(NSURL *root, NSError **error) {
   }
   _activeFolderURL = nil;
 
-  NSData *bookmarkData = [NSUserDefaults.standardUserDefaults dataForKey:@"LBArticlesFolderBookmark"];
   if (bookmarkData.length) {
     BOOL isStale = NO;
     NSError *err = nil;
@@ -776,7 +793,7 @@ static BOOL MDRevertJournalClear(NSURL *root, NSError **error) {
         _accessingSecurityScope = YES;
         _scopedFolderURL = resolved;
         _activeFolderURL = resolved;
-        if (isStale) {
+        if (isStale && renew) {
           // Re-create stale bookmark
           NSData *renewed = [resolved bookmarkDataWithOptions:0
                                includingResourceValuesForKeys:nil
@@ -792,7 +809,7 @@ static BOOL MDRevertJournalClear(NSURL *root, NSError **error) {
   // Fallback to Documents/Posts
   NSString *docDir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
   NSString *postsDir = [docDir stringByAppendingPathComponent:@"Posts"];
-  [NSFileManager.defaultManager createDirectoryAtPath:postsDir withIntermediateDirectories:YES attributes:nil error:nil];
+  if (renew) [NSFileManager.defaultManager createDirectoryAtPath:postsDir withIntermediateDirectories:YES attributes:nil error:nil];
   _activeFolderURL = [NSURL fileURLWithPath:postsDir isDirectory:YES];
   // Empty folders are populated only by an explicit GitHub sync. Bundled/workspace
   // content has no repository ownership or SHA baseline and must not be auto-adopted.
@@ -949,6 +966,14 @@ static BOOL MDRevertJournalClear(NSURL *root, NSError **error) {
     id value = dict[key];
     if ([value isKindOfClass:NSArray.class]) dict[key] = [value componentsJoinedByString:@", "];
     else if ([value isKindOfClass:NSNumber.class]) dict[key] = [value boolValue] ? @"true" : @"false";
+  }
+
+  // Preserve existing NSString/NSNumber boolValue/integerValue semantics,
+  // including quoted scalars. Containers are not valid flags or versions:
+  // fail closed in memory instead of sending numeric selectors to NSArray.
+  for (NSString *key in @[@"publish", @"pinned", @"singleSourceVersion"]) {
+    id value = dict[key];
+    if (value && ![value isKindOfClass:NSString.class] && ![value isKindOfClass:NSNumber.class]) dict[key] = @0;
   }
 
   NSArray *bodyLines = [lines subarrayWithRange:NSMakeRange(end + 1, lines.count - (end + 1))];

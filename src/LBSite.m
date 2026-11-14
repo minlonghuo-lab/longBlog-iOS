@@ -572,7 +572,8 @@ static BOOL GHReserveRetry(void) {
   BOOL _deployInFlight, _forceCertificatesQueued, _activeCertificatesQueued;
   NSString *_pendingCommit;
   NSDate *_pendingSince;
-  NSUInteger _generation;
+  NSUInteger _generation, _postsRevision;
+  dispatch_queue_t _postsQueue;
   long long _headAtMilliseconds, _builtAtMilliseconds;
 }
 + (instancetype)shared {
@@ -585,6 +586,7 @@ static BOOL GHReserveRetry(void) {
     _errors = [NSMutableDictionary dictionary]; _certs = [NSMutableDictionary dictionary];
     _certCheckedAt = [NSMutableDictionary dictionary]; _certAttemptAt = [NSMutableDictionary dictionary];
     _deployCompletions = [NSMutableArray array];
+    _postsQueue = dispatch_queue_create("com.longblog.dashboard.posts", DISPATCH_QUEUE_SERIAL);
   }
   return self;
 }
@@ -624,8 +626,32 @@ static long long msFromDateString(NSString *s) {
 }
 
 - (void)refreshPosts:(void (^)(void))done {
-  self->_posts = [LBMdStore.shared listArticles];
-  [self set:@"posts" error:nil]; [self changed]; if (done) done();
+  if (!NSThread.isMainThread) {
+    dispatch_async(dispatch_get_main_queue(), ^{ [self refreshPosts:done]; });
+    return;
+  }
+  NSUInteger generation = _generation, revision = ++_postsRevision;
+  NSData *bookmark = [NSUserDefaults.standardUserDefaults dataForKey:@"LBArticlesFolderBookmark"];
+  dispatch_async(_postsQueue, ^{
+    @autoreleasepool {
+      NSArray *posts = [LBMdStore listArticlesForFolderBookmark:bookmark];
+      dispatch_async(dispatch_get_main_queue(), ^{
+        NSData *currentBookmark = [NSUserDefaults.standardUserDefaults dataForKey:@"LBArticlesFolderBookmark"];
+        BOOL current = generation == self->_generation && revision == self->_postsRevision;
+        BOOL sameFolder = bookmark == currentBookmark || [bookmark isEqual:currentBookmark];
+        if (current && sameFolder) {
+          self->_posts = [posts copy];
+          [self set:@"posts" error:nil]; [self changed];
+        } else if (current) {
+          // A directory selection or stale-bookmark renewal invalidated this
+          // scan. Only the newest live request may schedule a replacement.
+          [self refreshPosts:nil];
+        }
+        // Always release the refreshAll group, including superseded results.
+        if (done) done();
+      });
+    }
+  });
 }
 
 - (void)refreshMemos:(void (^)(void))done {

@@ -210,7 +210,9 @@ class ArticleSyncContracts(unittest.TestCase):
 
     def test_site_posts_use_mdstore(self):
         refresh = section(SITE, '- (void)refreshPosts:', '- (void)refreshMemos:')
-        self.assertIn('[LBMdStore.shared listArticles]', refresh)
+        self.assertIn('[LBMdStore listArticlesForFolderBookmark:bookmark]', refresh)
+        self.assertIn('dispatch_async(_postsQueue', refresh)
+        self.assertNotIn('LBMdStore.shared', refresh)
         self.assertNotIn('generated', refresh)
         self.assertNotIn('getFile:', refresh)
 

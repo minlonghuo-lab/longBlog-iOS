@@ -2,8 +2,8 @@
 name: LongBlogInbox
 display_name: longBlog
 bundle_id: com.huowenlong.longblog.inbox
-version: "1.0"
-build: "1"
+version: "1.0.1"
+build: "2"
 min_ios: "26.0"
 sdk: ~/.ios-sdk/iPhoneOS26.5.sdk
 sources: [src/*.m]
